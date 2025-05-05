@@ -6,12 +6,15 @@ import PyPDF2
 from pdf2image import convert_from_bytes
 import pytesseract
 from PIL import Image
+import chromadb
 
 client = OpenAI(
     api_key="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",
     base_url = "https://api.groq.com/openai/v1",
 )
 
+chroma_client = chromadb.Client()
+chroma_collection = chroma_client.get_or_create_collection(name="pdf_chunks")
 
 def load_pdf(file_obj):
     text = ""
@@ -35,10 +38,24 @@ def load_text(file_path):
 
 def get_most_relevant_chunk(text, query, chunk_size=500):
     chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-    vectorizer = TfidfVectorizer().fit_transform([query] + chunks)
-    similarity = cosine_similarity(vectorizer[0:1], vectorizer[1:]).flatten()
-    most_relevant_index = similarity.argmax()
-    return chunks[most_relevant_index]
+    vectorizer = TfidfVectorizer().fit_transform([query] + chunks).toarray()
+    ids = [f"{i}" for i in range(len(chunks))]
+
+    chroma_collection.upsert(
+        documents=chunks,
+        embeddings=vectorizer[1:],
+        ids=ids
+    )
+    results = chroma_collection.query(
+        query_embeddings=[vectorizer[0:1]],
+        n_results=1
+    )
+    # similarity = cosine_similarity(vectorizer[0:1], vectorizer[1:]).flatten()
+    # most_relevant_index = similarity.argmax()
+    # return chunks[most_relevant_index]
+    print(len(chunks), len(vectorizer), len(ids))
+
+    results['documents'][0][0]
 
 
 def summarize_with_llm(prompt):
